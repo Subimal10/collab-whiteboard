@@ -7,20 +7,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Routes
+const authRoutes = require("./routes/auth");
+const indexRoutes = require("./routes/index");
+
+app.use("/api/auth", authRoutes);
+app.use("/api", indexRoutes);
+
 const PORT = process.env.PORT || 5000;
-
-// Test route
-app.get("/api/hello", (req, res) => {
-  res.send("API is running!");
-});
-
-// MongoDB connection
 mongoose
   .connect(
     process.env.MONGO_URI || "mongodb://localhost:27017/collab_whiteboard"
   )
   .then(() => {
-    console.log("MongoDB connected");
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch((err) => console.error("MongoDB connection error:", err));

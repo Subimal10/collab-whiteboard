@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from "react";
+import { Routes, Route } from "react-router-dom";
+import Register from "./components/Register";
+import Login from "./components/Login";
+import Dashboard from "./components/Dashboard";
+import PrivateRoute from "./components/PrivateRoute";
 
-function App() {
+function Home() {
   const [message, setMessage] = useState("Loading...");
 
   useEffect(() => {
@@ -16,6 +21,26 @@ function App() {
       <h1>Collaborative Whiteboard</h1>
       <p>{message}</p>
     </div>
+  );
+}
+
+function App() {
+  // return <div>Test Render</div>;
+  return (
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/login" element={<Login />} />
+      <Route
+        path="/dashboard"
+        element={
+          <PrivateRoute>
+            <Dashboard />
+          </PrivateRoute>
+        }
+      />
+      <Route path="/register" element={<Register />} />
+      {/* Add other routes here if needed */}
+    </Routes>
   );
 }
 
