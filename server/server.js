@@ -10,7 +10,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 5000;
 
 // Test route
-app.get("/", (req, res) => {
+app.get("/api/hello", (req, res) => {
   res.send("API is running!");
 });
 
