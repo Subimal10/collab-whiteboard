@@ -1,47 +1,32 @@
-import React, { useEffect, useState } from "react";
+// src/App.js
+import React from "react";
 import { Routes, Route } from "react-router-dom";
 import Register from "./components/Register";
 import Login from "./components/Login";
 import Dashboard from "./components/Dashboard";
 import PrivateRoute from "./components/PrivateRoute";
+import Home from "./components/Home";
+import Navbar from "./components/Navbar"; // <-- Import Navbar
 import "./styles/Auth.css";
 
-function Home() {
-  const [message, setMessage] = useState("Loading...");
-
-  useEffect(() => {
-    // Fetch data from backend
-    fetch("http://localhost:5000/api/hello")
-      .then((res) => res.text())
-      .then((data) => setMessage(data))
-      .catch(() => setMessage("Could not connect to backend"));
-  }, []);
-
+function App() {
   return (
     <div>
-      <h1>Collaborative Whiteboard</h1>
-      <p>{message}</p>
+      <Navbar /> {/* <-- Add Navbar here */}
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/dashboard"
+          element={
+            <PrivateRoute>
+              <Dashboard />
+            </PrivateRoute>
+          }
+        />
+        <Route path="/register" element={<Register />} />
+      </Routes>
     </div>
-  );
-}
-
-function App() {
-  // return <div>Test Render</div>;
-  return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/login" element={<Login />} />
-      <Route
-        path="/dashboard"
-        element={
-          <PrivateRoute>
-            <Dashboard />
-          </PrivateRoute>
-        }
-      />
-      <Route path="/register" element={<Register />} />
-      {/* Add other routes here if needed */}
-    </Routes>
   );
 }
 
