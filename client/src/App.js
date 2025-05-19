@@ -4,6 +4,7 @@ import Register from "./components/Register";
 import Login from "./components/Login";
 import Dashboard from "./components/Dashboard";
 import PrivateRoute from "./components/PrivateRoute";
+import "./styles/Auth.css";
 
 function Home() {
   const [message, setMessage] = useState("Loading...");

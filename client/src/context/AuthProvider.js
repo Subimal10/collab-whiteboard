@@ -10,20 +10,20 @@ export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
 
   // Login function
-  const login = async (credentials) => {
+  const login = async ({ identifier, password }) => {
     const response = await fetch("http://localhost:5000/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(credentials),
+      body: JSON.stringify({ identifier, password }),
     });
     const data = await response.json();
-    if (data.token) {
+    if (response.ok && data.token) {
       setUser(data.user);
       setToken(data.token);
       localStorage.setItem("token", data.token);
       navigate("/dashboard");
     } else {
-      alert(data.message || "Login failed");
+      throw new Error(data.message || "Login failed");
     }
   };
 
