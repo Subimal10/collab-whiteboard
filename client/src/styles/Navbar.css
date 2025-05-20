@@ -56,15 +56,21 @@
 @media (max-width: 768px) {
   .navbar-links {
     display: none;
-    position: absolute;
-    top: 100%;
-    left: 0;
-    width: 100%;
-    background-color: #fff;
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 70vw;
+    max-width: 320px;
+    height: 100vh;
+    background: #fff;
     flex-direction: column;
-    text-align: center;
-    padding: 1rem 0;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    align-items: flex-start;
+    padding: 3rem 2rem 2rem 2rem;
+    box-shadow: -2px 0 12px rgba(0, 0, 0, 0.12);
+    z-index: 1001;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    transform: translateX(100%);
+    opacity: 0;
   }
 
   .navbar-links li {
@@ -73,6 +79,11 @@
 
   .navbar-toggle {
     display: flex;
+    position: fixed;
+    top: 1.5rem;
+    right: 2rem;
+    z-index: 1100;
+    background: none;
   }
 
   .navbar-toggle.open span:first-child {
@@ -89,5 +100,27 @@
 
   .navbar-links.active {
     display: flex;
+    transform: translateX(0);
+    opacity: 1;
   }
+}
+
+.nav-active {
+  color: #007bff !important;
+  font-weight: bold;
+  border-bottom: 2px solid #007bff;
+}
+
+.logout-btn {
+  background: none;
+  border: none;
+  color: #333;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  transition: color 0.2s;
+}
+
+.logout-btn:hover {
+  color: #d8000c;
 }
