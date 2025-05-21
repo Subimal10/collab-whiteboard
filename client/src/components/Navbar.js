@@ -99,6 +99,17 @@ const Navbar = () => {
                 Register
               </NavLink>
             </li>
+            <li>
+              <NavLink
+                to="/whiteboard"
+                className={({ isActive }) =>
+                  isActive ? "nav-active" : undefined
+                }
+                onClick={() => setIsOpen(false)}
+              >
+                Whiteboard
+              </NavLink>
+            </li>
           </>
         )}
       </ul>

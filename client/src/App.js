@@ -7,6 +7,7 @@ import Dashboard from "./components/Dashboard";
 import PrivateRoute from "./components/PrivateRoute";
 import Home from "./components/Home";
 import Navbar from "./components/Navbar"; // <-- Import Navbar
+import Whiteboard from "./components/Whiteboard";
 import "./styles/Auth.css";
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
             </PrivateRoute>
           }
         />
+        <Route path="/whiteboard" element={<Whiteboard />} />
         <Route path="/register" element={<Register />} />
       </Routes>
     </div>

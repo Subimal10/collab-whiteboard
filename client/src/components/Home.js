@@ -21,6 +21,9 @@ const Home = () => (
         <Link to="/register" className="home-btn home-btn-secondary">
           Register
         </Link>
+        <Link to="/whiteboard" className="home-btn home-btn-whiteboard">
+          Try Whiteboard
+        </Link>
       </div>
     </header>
     <section className="home-features">
