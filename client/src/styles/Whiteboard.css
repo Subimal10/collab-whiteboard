@@ -1,31 +1,35 @@
 .whiteboard-container {
-  max-width: 960px;
   margin: 2rem auto;
-  padding: 1rem;
+  max-width: 950px;
   background: #f8f9fa;
-  border-radius: 8px;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  padding: 2rem;
 }
 
 .whiteboard-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
   align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
 }
 
-.whiteboard-toolbar button {
-  padding: 0.4rem 0.8rem;
-  border: 1px solid #ccc;
+.whiteboard-toolbar button,
+.whiteboard-toolbar label {
   background: #fff;
-  cursor: pointer;
+  border: 1px solid #bbb;
   border-radius: 4px;
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  color: #22223b;
+  cursor: pointer;
+  transition: background 0.2s, border 0.2s;
 }
 
 .whiteboard-toolbar button.active {
   background: #007bff;
-  color: white;
+  color: #fff;
   border-color: #007bff;
 }
 
@@ -33,31 +37,20 @@
   width: 32px;
   height: 32px;
   border: none;
-  cursor: pointer;
+  border-radius: 4px;
+  background: none;
+  padding: 0;
 }
 
 .whiteboard-toolbar input[type="range"] {
-  width: 100px;
+  width: 70px;
 }
 
-.whiteboard-textbox {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+.whiteboard-toolbar .image-upload-btn {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
 }
 
-.whiteboard-textbox input[type="text"] {
-  padding: 0.5rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  width: 200px;
-}
-
-.whiteboard-canvas {
-  border: 2px solid #007bff;
-  border-radius: 8px;
-  background: white;
-  display: block;
-  margin: auto;
-  touch-action: none;
+.whiteboard-toolbar .image-upload-btn input[type="file"] {
+  display: none;
 }
