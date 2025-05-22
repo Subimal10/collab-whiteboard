@@ -20,8 +20,8 @@ exports.saveBoard = async (req, res) => {
     const payload = req.body; // { lines, shapes, texts, images }
     await Whiteboard.findOneAndUpdate(
       { roomId },
-      { data: payload, updated: Date.now() },
-      { upsert: true, new: true }
+      { data: payload },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     res.json({ success: true });
   } catch (err) {
