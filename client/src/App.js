@@ -25,7 +25,7 @@ function App() {
             </PrivateRoute>
           }
         />
-        <Route path="/whiteboard" element={<Whiteboard />} />
+        <Route path="/whiteboard/:roomId" element={<Whiteboard />} />
         <Route path="/register" element={<Register />} />
       </Routes>
     </div>

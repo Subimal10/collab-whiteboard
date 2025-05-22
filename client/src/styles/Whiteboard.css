@@ -4,7 +4,13 @@
   background: #f8f9fa;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  padding: 2rem;
+  padding: 1rem; /* reduced padding to give more canvas space */
+  touch-action: none; /* ensure touch events hit the canvas */
+}
+
+.whiteboard-container .konvajs-content {
+  position: relative;
+  z-index: 1;
 }
 
 .whiteboard-toolbar {
@@ -53,4 +59,34 @@
 
 .whiteboard-toolbar .image-upload-btn input[type="file"] {
   display: none;
+}
+
+/* make sure this comes *after* your .whiteboard-toolbar rules */
+.stage-container {
+  width: 100%; /* fill the whiteboard-container’s width */
+  max-height: 70vh; /* limit to 70% of the viewport height */
+  margin: 0 auto; /* center horizontally */
+  /* overflow: auto; scrollbars if the canvas is too big */
+}
+
+/* New styles for text editing */
+.text-editor {
+  position: absolute;
+  border: 1px solid #007bff;
+  background: #fff;
+  padding: 4px;
+  border-radius: 4px;
+  z-index: 10;
+  outline: none;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+/* Force smooth strokes on canvas shapes */
+.whiteboard-container line,
+.whiteboard-container path,
+.whiteboard-container circle,
+.whiteboard-container rect {
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }

@@ -1,21 +1,28 @@
+// src/components/Whiteboard.js
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import {
   Stage,
   Layer,
+  Line,
   Rect,
   Circle,
   Arrow,
-  Text as KonvaText,
-  Image as KonvaImage,
-  Line,
   Transformer,
+  Image as KonvaImage,
+  Text as KonvaText,
 } from "react-konva";
 import useImage from "use-image";
+import { io } from "socket.io-client";
+import { useParams } from "react-router-dom";
+import axios from "axios";
 import "../styles/Whiteboard.css";
 
-// Helper for uploaded images
+// global socket
+const socket = io("http://localhost:5000");
+
+// helper component for uploaded images
 const UploadedImage = ({ shapeProps, isSelected, onSelect, onChange }) => {
-  const [image] = useImage(shapeProps.src);
+  const [img] = useImage(shapeProps.src);
   const shapeRef = useRef();
   const trRef = useRef();
 
@@ -29,20 +36,16 @@ const UploadedImage = ({ shapeProps, isSelected, onSelect, onChange }) => {
   return (
     <>
       <KonvaImage
-        image={image}
+        image={img}
         ref={shapeRef}
         {...shapeProps}
         draggable
         onClick={onSelect}
         onTap={onSelect}
         onDragEnd={(e) =>
-          onChange({
-            ...shapeProps,
-            x: e.target.x(),
-            y: e.target.y(),
-          })
+          onChange({ ...shapeProps, x: e.target.x(), y: e.target.y() })
         }
-        onTransformEnd={(e) => {
+        onTransformEnd={() => {
           const node = shapeRef.current;
           onChange({
             ...shapeProps,
@@ -50,8 +53,8 @@ const UploadedImage = ({ shapeProps, isSelected, onSelect, onChange }) => {
             y: node.y(),
             width: Math.max(5, node.width() * node.scaleX()),
             height: Math.max(5, node.height() * node.scaleY()),
-            scaleX: 1,
-            scaleY: 1,
+            scaleX: node.scaleX(),
+            scaleY: node.scaleY(),
             rotation: node.rotation(),
           });
         }}
@@ -61,52 +64,148 @@ const UploadedImage = ({ shapeProps, isSelected, onSelect, onChange }) => {
   );
 };
 
-// Aspect ratio utility (16:9)
+// keep stage 16:9 between 600×350 and 1200×700
+// in Whiteboard.js, replace getStageSize() with:
 function getStageSize() {
-  let width = Math.min(window.innerWidth - 40, 1200);
-  width = Math.max(width, 600);
+  const maxW = Math.min(window.innerWidth - 40, 1200);
+  const minW = 600;
+  let width = Math.max(minW, maxW);
+  // ideal height for 16∶9
   let height = Math.round(width / (16 / 9));
-  height = Math.max(height, 350);
-  height = Math.min(height, 700);
+
+  // then cap by available viewport (e.g. 80% of window)
+  const maxH = window.innerHeight * 0.8;
+  if (height > maxH) {
+    height = Math.round(maxH);
+    width = Math.round(height * (16 / 9));
+  }
+
   return { width, height };
 }
 
 export default function Whiteboard() {
+  const { roomId } = useParams();
+  const stageRef = useRef();
+  const transformerRef = useRef();
+
+  const [stageSize, setStageSize] = useState(getStageSize());
   const [tool, setTool] = useState("pen");
   const [color, setColor] = useState("#22223b");
   const [fillColor, setFillColor] = useState("#ffffff00");
   const [lineWidth, setLineWidth] = useState(4);
+  const [snapToGrid, setSnapToGrid] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
+
   const [lines, setLines] = useState([]);
   const [shapes, setShapes] = useState([]);
   const [texts, setTexts] = useState([]);
   const [images, setImages] = useState([]);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [snapToGrid, setSnapToGrid] = useState(false);
-  const [showGrid, setShowGrid] = useState(false);
+
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
-  const [stageSize, setStageSize] = useState(getStageSize());
 
+  const [isDrawing, setIsDrawing] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [editingTextId, setEditingTextId] = useState(null);
   const [textEditValue, setTextEditValue] = useState("");
   const [addingText, setAddingText] = useState(false);
 
-  const stageRef = useRef();
-  const transformerRef = useRef();
+  // responsive resize
+  // near top of component, before any useEffects:
+  const prevSize = useRef(stageSize);
 
-  // Responsive canvas with aspect ratio
+  // replace your resize effect with this:
+  useEffect(
+    () => {
+      const onResize = () => {
+        const newSize = getStageSize();
+        const old = prevSize.current;
+        const scaleX = newSize.width / old.width;
+        const scaleY = newSize.height / old.height;
+
+        // 1) rescale lines
+        setLines((all) =>
+          all.map((l) => ({
+            ...l,
+            points: l.points.map((p, i) =>
+              i % 2 === 0 ? p * scaleX : p * scaleY
+            ),
+          }))
+        );
+
+        // 2) rescale shapes
+        setShapes((all) =>
+          all.map((s) => {
+            const upd = {
+              ...s,
+              x: s.x * scaleX,
+              y: s.y * scaleY,
+              x2: s.x2 * scaleX,
+              y2: s.y2 * scaleY,
+              strokeWidth: s.strokeWidth * ((scaleX + scaleY) / 2),
+            };
+            if (upd.width) upd.width *= scaleX;
+            if (upd.height) upd.height *= scaleY;
+            if (upd.radius) upd.radius *= scaleX; // approximate
+            return upd;
+          })
+        );
+
+        // 3) rescale texts
+        setTexts((all) =>
+          all.map((t) => ({
+            ...t,
+            x: t.x * scaleX,
+            y: t.y * scaleY,
+            fontSize: (t.fontSize || 20) * scaleX,
+          }))
+        );
+
+        // 4) rescale images
+        setImages((all) =>
+          all.map((i) => ({
+            ...i,
+            x: i.x * scaleX,
+            y: i.y * scaleY,
+            width: i.width * scaleX,
+            height: i.height * scaleY,
+          }))
+        );
+
+        prevSize.current = newSize;
+        setStageSize(newSize);
+      };
+
+      window.addEventListener("resize", onResize);
+      onResize();
+      return () => window.removeEventListener("resize", onResize);
+    },
+    [
+      /* no deps: everything read from refs or setters */
+    ]
+  );
+
+  // join room & load saved board
   useEffect(() => {
-    const handleResize = () => setStageSize(getStageSize());
-    window.addEventListener("resize", handleResize);
-    handleResize();
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+    socket.emit("join-room", roomId);
+    axios
+      .get(`/api/whiteboard/${roomId}`)
+      .then((res) => {
+        if (res.data.data) {
+          const { lines, shapes, texts, images } = res.data.data;
+          setLines(lines || []);
+          setShapes(shapes || []);
+          setTexts(texts || []);
+          setImages(images || []);
+        }
+      })
+      .catch(console.error);
+  }, [roomId]);
 
-  // Undo/redo helpers
+  // undo/redo helpers
   const pushToUndo = useCallback(() => {
-    setUndoStack((stack) => [
-      ...stack,
+    setUndoStack((u) => [
+      ...u,
       {
         lines: [...lines],
         shapes: [...shapes],
@@ -117,217 +216,187 @@ export default function Whiteboard() {
     setRedoStack([]);
   }, [lines, shapes, texts, images]);
 
-  const applyHistory = (historyItem) => {
-    if (historyItem) {
-      setLines(historyItem.lines);
-      setShapes(historyItem.shapes);
-      setTexts(historyItem.texts);
-      setImages(historyItem.images);
-    }
+  const applyHistory = (h) => {
+    if (!h) return;
+    setLines(h.lines);
+    setShapes(h.shapes);
+    setTexts(h.texts);
+    setImages(h.images);
   };
 
   const handleUndo = () => {
-    if (undoStack.length === 0) return;
-    const prev = undoStack[undoStack.length - 1];
-    setRedoStack((stack) => [
-      ...stack,
-      {
-        lines: [...lines],
-        shapes: [...shapes],
-        texts: [...texts],
-        images: [...images],
-      },
-    ]);
+    if (!undoStack.length) return;
+    const prev = undoStack.at(-1);
+    setRedoStack((r) => [...r, { lines, shapes, texts, images }]);
     applyHistory(prev);
-    setUndoStack((stack) => stack.slice(0, -1));
+    socket.emit("sync-state", {
+      roomId,
+      lines: prev.lines,
+      shapes: prev.shapes,
+      texts: prev.texts,
+      images: prev.images,
+    });
+    setUndoStack((u) => u.slice(0, -1));
     setSelectedId(null);
   };
 
   const handleRedo = () => {
-    if (redoStack.length === 0) return;
-    const next = redoStack[redoStack.length - 1];
-    setUndoStack((stack) => [
-      ...stack,
-      {
-        lines: [...lines],
-        shapes: [...shapes],
-        texts: [...texts],
-        images: [...images],
-      },
-    ]);
+    if (!redoStack.length) return;
+    const next = redoStack.at(-1);
+    setUndoStack((u) => [...u, { lines, shapes, texts, images }]);
     applyHistory(next);
-    setRedoStack((stack) => stack.slice(0, -1));
+    socket.emit("sync-state", {
+      roomId,
+      lines: next.lines,
+      shapes: next.shapes,
+      texts: next.texts,
+      images: next.images,
+    });
+    setRedoStack((r) => r.slice(0, -1));
     setSelectedId(null);
   };
 
-  // Mouse handlers
+  // snap util
+  const snap = (v) => (snapToGrid ? Math.round(v / 20) * 20 : v);
+
+  // drawing handlers
   const handleMouseDown = (e) => {
     const pos = stageRef.current.getPointerPosition();
+    pushToUndo();
+
     if (tool === "pen" || tool === "eraser") {
-      pushToUndo();
-      setIsDrawing(true);
-      setLines((lines) => [
-        ...lines,
-        {
-          tool,
-          points: [pos.x, pos.y],
-          color: tool === "eraser" ? "#fff" : color,
-          width: lineWidth,
-          id: "line" + Date.now(),
-        },
-      ]);
-      setSelectedId(null);
-    } else if (tool === "rect" || tool === "circle") {
-      pushToUndo();
-      setIsDrawing(true);
+      const newLine = {
+        tool,
+        points: [pos.x, pos.y],
+        color: tool === "eraser" ? "#fff" : color,
+        width: lineWidth,
+        id: "line" + Date.now(),
+      };
+      setLines((a) => [...a, newLine]);
+      socket.emit("drawing", { roomId, line: newLine });
+    } else if (["rect", "circle", "arrow"].includes(tool)) {
       const id = tool + Date.now();
-      setShapes((shapes) => [
-        ...shapes,
-        {
-          id,
-          type: tool,
-          x: pos.x,
-          y: pos.y,
-          x2: pos.x,
-          y2: pos.y,
-          stroke: color,
-          fill: fillColor,
-          strokeWidth: lineWidth,
-        },
-      ]);
+      const base = {
+        id,
+        type: tool,
+        x: pos.x,
+        y: pos.y,
+        stroke: color,
+        fill: tool === "arrow" ? color : fillColor,
+        strokeWidth: lineWidth,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+      };
+      const newShape =
+        tool === "arrow"
+          ? { ...base, x2: pos.x + 1, y2: pos.y + 1 }
+          : { ...base, x2: pos.x, y2: pos.y };
+      setShapes((a) => [...a, newShape]);
+      socket.emit("drawing", { roomId, shape: newShape });
       setSelectedId(id);
-    } else if (tool === "arrow") {
-      pushToUndo();
-      setIsDrawing(true);
-      const id = "arrow" + Date.now();
-      setShapes((shapes) => [
-        ...shapes,
-        {
-          id,
-          type: "arrow",
-          x: pos.x,
-          y: pos.y,
-          x2: pos.x,
-          y2: pos.y,
-          stroke: color,
-          fill: color,
-          strokeWidth: lineWidth,
-        },
-      ]);
+    } else if (tool === "text" && !addingText) {
+      const id = "text" + Date.now();
+      const newText = { id, text: "", x: pos.x, y: pos.y, fill: color };
+      setTexts((a) => [...a, newText]);
+      socket.emit("drawing", { roomId, text: newText });
       setSelectedId(id);
-    } else if (tool === "text") {
-      if (!addingText) {
-        pushToUndo();
-        const id = "text" + Date.now();
-        setTexts((texts) => [
-          ...texts,
-          {
-            id,
-            text: "",
-            x: pos.x,
-            y: pos.y,
-            fill: color,
-          },
-        ]);
-        setSelectedId(id);
-        setEditingTextId(id);
-        setTextEditValue("");
-        setAddingText(true);
-      }
+      setEditingTextId(id);
+      setTextEditValue("");
+      setAddingText(true);
     }
+
+    setIsDrawing(true);
   };
 
   const handleMouseMove = (e) => {
     if (!isDrawing) return;
     const pos = stageRef.current.getPointerPosition();
+
+    // pen/eraser: append a point *and* broadcast it
     if (tool === "pen" || tool === "eraser") {
-      setLines((lines) =>
-        lines.map((line, i) =>
-          i === lines.length - 1
-            ? {
-                ...line,
-                points: [...line.points, pos.x, pos.y],
-              }
-            : line
-        )
-      );
-    } else if (tool === "rect" || tool === "circle" || tool === "arrow") {
-      setShapes((shapes) =>
-        shapes.map((shape, i) =>
-          i === shapes.length - 1 ? { ...shape, x2: pos.x, y2: pos.y } : shape
-        )
-      );
+      setLines((all) => {
+        const last = all[all.length - 1];
+        const updatedLine = {
+          ...last,
+          points: [...last.points, pos.x, pos.y],
+        };
+        const rest = all.slice(0, -1);
+        const next = [...rest, updatedLine];
+        // send the *updated* stroke to the room
+        socket.emit("drawing", { roomId, line: updatedLine });
+        return next;
+      });
+    }
+
+    // rectangle/circle/arrow: same idea, broadcast your x2/y2 updates
+    else if (["rect", "circle", "arrow"].includes(tool)) {
+      setShapes((all) => {
+        const last = all[all.length - 1];
+        const updatedShape = { ...last, x2: pos.x, y2: pos.y };
+        const rest = all.slice(0, -1);
+        const next = [...rest, updatedShape];
+        socket.emit("drawing", { roomId, shape: updatedShape });
+        return next;
+      });
     }
   };
 
   const handleMouseUp = () => {
     setIsDrawing(false);
-    if (tool === "arrow" || tool === "rect" || tool === "circle") {
-      setTool("select");
-    }
+    if (["rect", "circle", "arrow"].includes(tool)) setTool("select");
     if (tool === "text") {
       setAddingText(false);
       setTool("select");
     }
   };
 
-  // Snap to grid
-  const snap = (v) => (snapToGrid ? Math.round(v / 20) * 20 : v);
-
-  // Text handlers
+  // text edit handlers
   const handleTextDblClick = (t) => {
     setEditingTextId(t.id);
     setTextEditValue(t.text);
-    setSelectedId(t.id);
   };
-
   const handleTextEdit = () => {
-    setTexts((texts) =>
-      texts.map((t) =>
-        t.id === editingTextId ? { ...t, text: textEditValue } : t
-      )
-    );
+    // grab the original node so we preserve x/y/fill
+    const original = texts.find((t) => t.id === editingTextId) || {};
+    const updated = {
+      ...original,
+      id: editingTextId,
+      text: textEditValue,
+    };
+
+    // update local state
+    setTexts((all) => all.map((t) => (t.id === editingTextId ? updated : t)));
+
+    // broadcast to others
+    socket.emit("drawing", { roomId, text: updated });
+
+    // exit edit mode
     setEditingTextId(null);
     setTextEditValue("");
-    setTool("pen");
-    setAddingText(false);
+    setTool("select"); // switch back to select
   };
 
-  // Object eraser: removes any object on click
-  const handleObjectEraser = (id, type) => {
-    pushToUndo();
-    if (type === "shape")
-      setShapes((shapes) => shapes.filter((s) => s.id !== id));
-    else if (type === "text")
-      setTexts((texts) => texts.filter((t) => t.id !== id));
-    else if (type === "image")
-      setImages((images) => images.filter((img) => img.id !== id));
-    setSelectedId(null);
-  };
-
-  // Image upload
+  // image upload
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      pushToUndo();
       const id = "img" + Date.now();
-      setImages([
-        ...images,
-        {
-          id,
-          src: reader.result,
-          x: 100,
-          y: 100,
-          width: 150,
-          height: 100,
-          scaleX: 1,
-          scaleY: 1,
-          rotation: 0,
-          type: "image",
-        },
-      ]);
+      const newImage = {
+        id,
+        src: reader.result,
+        x: 100,
+        y: 100,
+        width: 150,
+        height: 100,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+      };
+      setImages((a) => [...a, newImage]);
+      socket.emit("drawing", { roomId, image: newImage });
       setSelectedId(id);
       setTool("select");
     };
@@ -335,7 +404,7 @@ export default function Whiteboard() {
     e.target.value = "";
   };
 
-  // Download/export
+  // download/export
   const handleDownload = (bg = "white", withGrid = false) => {
     setShowGrid(withGrid);
     setTimeout(() => {
@@ -351,137 +420,139 @@ export default function Whiteboard() {
       link.click();
       document.body.removeChild(link);
       if (!withGrid) setShowGrid(false);
-    }, 100); // allow grid to render if needed
+    }, 100);
   };
 
-  // Clear canvas
+  // clear
   const handleClear = () => {
     pushToUndo();
     setLines([]);
     setShapes([]);
     setTexts([]);
     setImages([]);
+    socket.emit("clear-canvas", roomId);
     setSelectedId(null);
   };
 
-  // Deselect on empty area click
-  const handleStageMouseDown = (e) => {
-    if (e.target === e.target.getStage()) {
-      setSelectedId(null);
-      setEditingTextId(null);
-      return;
-    }
-    // Drawing logic:
-    const pos = stageRef.current.getPointerPosition();
-    if (tool === "pen" || tool === "eraser") {
-      pushToUndo();
-      setIsDrawing(true);
-      setLines((lines) => [
-        ...lines,
-        {
-          tool,
-          points: [pos.x, pos.y],
-          color: tool === "eraser" ? "#fff" : color,
-          width: lineWidth,
-          id: "line" + Date.now(),
-        },
-      ]);
-      setSelectedId(null);
-    } else if (tool === "rect" || tool === "circle") {
-      pushToUndo();
-      setIsDrawing(true);
-      const id = tool + Date.now();
-      setShapes((shapes) => [
-        ...shapes,
-        {
-          id,
-          type: tool,
-          x: pos.x,
-          y: pos.y,
-          x2: pos.x,
-          y2: pos.y,
-          stroke: color,
-          fill: fillColor,
-          strokeWidth: lineWidth,
-        },
-      ]);
-      setSelectedId(id);
-    } else if (tool === "arrow") {
-      pushToUndo();
-      setIsDrawing(true);
-      const id = "arrow" + Date.now();
-      setShapes((shapes) => [
-        ...shapes,
-        {
-          id,
-          type: "arrow",
-          x: pos.x,
-          y: pos.y,
-          x2: pos.x,
-          y2: pos.y,
-          stroke: color,
-          fill: color,
-          strokeWidth: lineWidth,
-        },
-      ]);
-      setSelectedId(id);
-    } else if (tool === "text") {
-      if (!addingText) {
-        pushToUndo();
-        const id = "text" + Date.now();
-        setTexts((texts) => [
-          ...texts,
-          {
-            id,
-            text: "",
-            x: pos.x,
-            y: pos.y,
-            fill: color,
-          },
-        ]);
-        setSelectedId(id);
-        setEditingTextId(id);
-        setTextEditValue("");
-        setAddingText(true);
-      }
-    }
-  };
-
-  // Keyboard delete
+  // ── REMOTE SYNC (upsert) ───────────────────────────────────────
   useEffect(() => {
-    const handleKeyDown = (e) => {
+    const handler = (data) => {
+      // LINE
+      if (data.line) {
+        setLines((all) => {
+          const exists = all.some((l) => l.id === data.line.id);
+          if (exists) {
+            return all.map((l) => (l.id === data.line.id ? data.line : l));
+          } else {
+            return [...all, data.line];
+          }
+        });
+      }
+
+      // SHAPE
+      if (data.shape) {
+        setShapes((all) => {
+          const exists = all.some((s) => s.id === data.shape.id);
+          if (exists) {
+            return all.map((s) => (s.id === data.shape.id ? data.shape : s));
+          } else {
+            return [...all, data.shape];
+          }
+        });
+      }
+
+      // TEXT
+      if (data.text) {
+        setTexts((all) => {
+          const exists = all.some((t) => t.id === data.text.id);
+          if (exists) {
+            return all.map((t) => (t.id === data.text.id ? data.text : t));
+          } else {
+            return [...all, data.text];
+          }
+        });
+      }
+
+      // IMAGE
+      if (data.image) {
+        setImages((all) => {
+          const exists = all.some((i) => i.id === data.image.id);
+          if (exists) {
+            return all.map((i) => (i.id === data.image.id ? data.image : i));
+          } else {
+            return [...all, data.image];
+          }
+        });
+      }
+    };
+
+    socket.on("drawing", handler);
+    socket.on("clear-canvas", () => {
+      setLines([]);
+      setShapes([]);
+      setTexts([]);
+      setImages([]);
+    });
+
+    // ← NEW: listen for full‐canvas sync
+    socket.on("sync-state", ({ lines, shapes, texts, images }) => {
+      setLines(lines);
+      setShapes(shapes);
+      setTexts(texts);
+      setImages(images);
+    });
+
+    return () => {
+      socket.off("drawing", handler);
+      socket.off("clear-canvas");
+      socket.off("sync-state");
+    };
+  }, []); // <— no dependencies here
+
+  // autosave
+  useEffect(() => {
+    const iv = setInterval(() => {
+      axios
+        .post(`/api/whiteboard/${roomId}`, { lines, shapes, texts, images })
+        .catch(console.error);
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [roomId, lines, shapes, texts, images]);
+
+  // delete-key
+  useEffect(() => {
+    const onKey = (e) => {
       if (e.key === "Delete" && selectedId) {
         pushToUndo();
-        setLines((lines) => lines.filter((l) => l.id !== selectedId));
-        setShapes((shapes) => shapes.filter((s) => s.id !== selectedId));
-        setTexts((texts) => texts.filter((t) => t.id !== selectedId));
-        setImages((images) => images.filter((img) => img.id !== selectedId));
+        setLines((a) => a.filter((l) => l.id !== selectedId));
+        setShapes((a) => a.filter((s) => s.id !== selectedId));
+        setTexts((a) => a.filter((t) => t.id !== selectedId));
+        setImages((a) => a.filter((i) => i.id !== selectedId));
         setSelectedId(null);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [selectedId, pushToUndo]);
 
-  // Transformer logic for shapes and texts
+  // transformer for selected
   useEffect(() => {
     if (transformerRef.current && selectedId) {
-      const stage = stageRef.current;
-      const selectedNode = stage.findOne(`#${selectedId}`);
-      if (selectedNode) {
-        transformerRef.current.nodes([selectedNode]);
+      const node = stageRef.current.findOne(`#${selectedId}`);
+      if (node) {
+        transformerRef.current.nodes([node]);
         transformerRef.current.getLayer().batchDraw();
       }
     }
   }, [selectedId, lines, shapes, texts, images]);
 
-  // Grid lines
+  // grid-lines
   const gridLines = [];
   if (showGrid) {
     for (let i = 0; i < stageSize.width / 20; i++) {
       gridLines.push(
         <Rect
-          key={"v" + i}
+          key={`v${i}`}
           x={i * 20}
           y={0}
           width={1}
@@ -494,7 +565,7 @@ export default function Whiteboard() {
     for (let j = 0; j < stageSize.height / 20; j++) {
       gridLines.push(
         <Rect
-          key={"h" + j}
+          key={`h${j}`}
           x={0}
           y={j * 20}
           width={stageSize.width}
@@ -507,10 +578,7 @@ export default function Whiteboard() {
   }
 
   return (
-    <div
-      className="whiteboard-container"
-      style={{ overflow: "hidden", maxWidth: "100vw" }}
-    >
+    <div className="whiteboard-container">
       <div className="whiteboard-toolbar">
         <button
           className={tool === "pen" ? "active" : ""}
@@ -556,10 +624,10 @@ export default function Whiteboard() {
         <button onClick={() => handleDownload("white", true)}>
           Download with Grid
         </button>
-        <button onClick={handleUndo} disabled={undoStack.length === 0}>
+        <button onClick={handleUndo} disabled={!undoStack.length}>
           Undo
         </button>
-        <button onClick={handleRedo} disabled={redoStack.length === 0}>
+        <button onClick={handleRedo} disabled={!redoStack.length}>
           Redo
         </button>
         <button
@@ -610,155 +678,159 @@ export default function Whiteboard() {
           />
         </label>
       </div>
-      <div style={{ position: "relative", width: "100%", overflow: "hidden" }}>
+
+      {/* in-place text editor */}
+      {editingTextId && (
+        <input
+          className="text-editor"
+          style={{
+            position: "absolute",
+            left: texts.find((t) => t.id === editingTextId).x,
+            top: texts.find((t) => t.id === editingTextId).y,
+          }}
+          value={textEditValue}
+          onChange={(e) => setTextEditValue(e.target.value)}
+          onBlur={handleTextEdit}
+          onKeyDown={(e) => e.key === "Enter" && handleTextEdit()}
+        />
+      )}
+
+      <div className="stage-container">
         <Stage
           ref={stageRef}
           width={stageSize.width}
           height={stageSize.height}
-          onMouseDown={handleStageMouseDown}
-          onTouchStart={handleMouseDown}
           onMouseDown={handleMouseDown}
-          onTouchMove={handleMouseMove}
           onMouseMove={handleMouseMove}
-          onTouchEnd={handleMouseUp}
           onMouseUp={handleMouseUp}
           style={{
+            // match the exact pixel dims
+            width: stageSize.width,
+            height: stageSize.height,
+
+            // visual styling
             background: "#fff",
-            borderRadius: 8,
             border: "2px solid #007bff",
-            width: "100%",
-            boxSizing: "border-box",
+            borderRadius: 8,
+
+            // avoid Konva forcing inline-block whitespace
             display: "block",
-            margin: "0 auto",
+            boxSizing: "border-box",
           }}
         >
           <Layer>
             {gridLines}
-            {lines.map((line) => (
+
+            {lines.map((l) => (
               <Line
-                key={line.id}
-                id={line.id}
-                points={line.points}
-                stroke={line.color}
-                strokeWidth={line.width}
+                key={l.id}
+                points={l.points}
+                stroke={l.color}
+                strokeWidth={l.width}
                 tension={0.5}
                 lineCap="round"
                 globalCompositeOperation={
-                  line.tool === "eraser" ? "destination-out" : "source-over"
+                  l.tool === "eraser" ? "destination-out" : "source-over"
                 }
               />
             ))}
-            {shapes.map((shape) => {
-              const shapeProps = {
-                key: shape.id,
-                id: shape.id,
-                x: snap(shape.x),
-                y: snap(shape.y),
-                stroke: shape.stroke,
-                fill: shape.fill,
-                strokeWidth: shape.strokeWidth,
+
+            {shapes.map((s) => {
+              const props = {
+                key: s.id,
+                id: s.id,
+                x: snap(s.x),
+                y: snap(s.y),
+                stroke: s.stroke,
+                fill: s.fill,
+                strokeWidth: s.strokeWidth,
                 draggable: true,
-                onClick:
-                  tool === "eraser"
-                    ? () => handleObjectEraser(shape.id, "shape")
-                    : () => setSelectedId(shape.id),
-                onTap:
-                  tool === "eraser"
-                    ? () => handleObjectEraser(shape.id, "shape")
-                    : () => setSelectedId(shape.id),
+
+                // select on click
+                onClick: () => setSelectedId(s.id),
+                onTap: () => setSelectedId(s.id),
+
+                // 2a) onDragEnd: update state + broadcast
                 onDragEnd: (e) => {
                   pushToUndo();
-                  setShapes((shapes) =>
-                    shapes.map((s) =>
-                      s.id === shape.id
-                        ? { ...s, x: snap(e.target.x()), y: snap(e.target.y()) }
-                        : s
-                    )
+                  const updated = {
+                    ...s,
+                    x: snap(e.target.x()),
+                    y: snap(e.target.y()),
+                  };
+                  setShapes((all) =>
+                    all.map((sh) => (sh.id === s.id ? updated : sh))
                   );
+                  socket.emit("drawing", { roomId, shape: updated });
                 },
-                onTransformEnd: (e) => {
+
+                // 2b) onTransformEnd: update state + broadcast
+                onTransformEnd: () => {
                   pushToUndo();
-                  const node = stageRef.current.findOne(`#${shape.id}`);
-                  if (shape.type === "rect") {
-                    setShapes((shapes) =>
-                      shapes.map((s) =>
-                        s.id === shape.id
-                          ? {
-                              ...s,
-                              x: snap(node.x()),
-                              y: snap(node.y()),
-                              width: Math.max(5, node.width() * node.scaleX()),
-                              height: Math.max(
-                                5,
-                                node.height() * node.scaleY()
-                              ),
-                              scaleX: 1,
-                              scaleY: 1,
-                            }
-                          : s
-                      )
-                    );
-                  } else if (shape.type === "circle") {
-                    setShapes((shapes) =>
-                      shapes.map((s) =>
-                        s.id === shape.id
-                          ? {
-                              ...s,
-                              x: snap(node.x()),
-                              y: snap(node.y()),
-                              radius: Math.max(
-                                5,
-                                node.radius() * node.scaleX()
-                              ),
-                              scaleX: 1,
-                              scaleY: 1,
-                            }
-                          : s
-                      )
-                    );
-                  } else if (shape.type === "arrow") {
-                    // Optionally: update arrow points if you want to allow resizing arrows
+                  const node = stageRef.current.findOne(`#${s.id}`);
+                  const update = {
+                    x: snap(node.x()),
+                    y: snap(node.y()),
+                    // reset scales after reading width/height/radius
+                    scaleX: 1,
+                    scaleY: 1,
+                  };
+                  if (s.type === "rect") {
+                    update.width = Math.max(5, node.width() * node.scaleX());
+                    update.height = Math.max(5, node.height() * node.scaleY());
                   }
-                  setSelectedId(shape.id);
+                  if (s.type === "circle") {
+                    update.radius = Math.max(5, node.radius() * node.scaleX());
+                  }
+                  const updated = { ...s, ...update };
+                  setShapes((all) =>
+                    all.map((sh) => (sh.id === s.id ? updated : sh))
+                  );
+                  setSelectedId(s.id);
+                  socket.emit("drawing", { roomId, shape: updated });
                 },
               };
-              if (shape.type === "rect") {
+
+              if (s.type === "rect")
                 return (
                   <Rect
-                    {...shapeProps}
-                    width={Math.abs(shape.x2 - shape.x)}
-                    height={Math.abs(shape.y2 - shape.y)}
+                    {...props}
+                    width={Math.abs(s.x2 - s.x)}
+                    height={Math.abs(s.y2 - s.y)}
                   />
                 );
-              } else if (shape.type === "circle") {
-                const radius =
-                  Math.hypot(shape.x2 - shape.x, shape.y2 - shape.y) / 2;
-                return <Circle {...shapeProps} radius={radius} />;
-              } else if (shape.type === "arrow") {
+              if (s.type === "circle")
+                return (
+                  <Circle
+                    {...props}
+                    radius={Math.hypot(s.x2 - s.x, s.y2 - s.y) / 2}
+                  />
+                );
+              if (s.type === "arrow")
                 return (
                   <Arrow
-                    {...shapeProps}
-                    points={[shape.x, shape.y, shape.x2, shape.y2]}
+                    {...props}
+                    points={[s.x, s.y, s.x2, s.y2]}
                     pointerLength={15}
                     pointerWidth={15}
                   />
                 );
-              }
               return null;
             })}
+
             {texts.map((t) =>
               editingTextId === t.id ? (
                 <foreignObject
                   key={t.id}
                   x={t.x}
                   y={t.y}
-                  width={300}
+                  width={200}
                   height={50}
                 >
                   <input
                     style={{
                       fontSize: 20,
-                      width: 250,
+                      width: 180,
                       padding: 4,
                       borderRadius: 4,
                       border: "1px solid #007bff",
@@ -767,9 +839,7 @@ export default function Whiteboard() {
                     autoFocus
                     onChange={(e) => setTextEditValue(e.target.value)}
                     onBlur={handleTextEdit}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleTextEdit();
-                    }}
+                    onKeyDown={(e) => e.key === "Enter" && handleTextEdit()}
                   />
                 </foreignObject>
               ) : (
@@ -780,36 +850,50 @@ export default function Whiteboard() {
                   x={t.x}
                   y={t.y}
                   fill={t.fill}
-                  fontSize={20}
+                  fontSize={t.fontSize || 20}
                   draggable
-                  onClick={
-                    tool === "eraser"
-                      ? () => handleObjectEraser(t.id, "text")
-                      : () => setSelectedId(t.id)
-                  }
-                  onTap={
-                    tool === "eraser"
-                      ? () => handleObjectEraser(t.id, "text")
-                      : () => setSelectedId(t.id)
-                  }
+                  onClick={() => setSelectedId(t.id)}
+                  onTap={() => setSelectedId(t.id)}
                   onDblClick={() => handleTextDblClick(t)}
                   onDragEnd={(e) => {
                     pushToUndo();
-                    setTexts((texts) =>
-                      texts.map((text) =>
-                        text.id === t.id
-                          ? {
-                              ...text,
-                              x: snap(e.target.x()),
-                              y: snap(e.target.y()),
-                            }
-                          : text
-                      )
+                    const updated = {
+                      ...t,
+                      x: snap(e.target.x()),
+                      y: snap(e.target.y()),
+                    };
+                    setTexts((all) =>
+                      all.map((tx) => (tx.id === t.id ? updated : tx))
                     );
+                    socket.emit("drawing", { roomId, text: updated });
+                  }}
+                  onTransformEnd={() => {
+                    pushToUndo();
+                    const node = stageRef.current.findOne(`#${t.id}`);
+                    // scaleX and scaleY applied to fontSize
+                    const newFontSize = Math.max(
+                      5,
+                      node.fontSize() * node.scaleX()
+                    );
+                    const updated = {
+                      ...t,
+                      x: snap(node.x()),
+                      y: snap(node.y()),
+                      fontSize: newFontSize,
+                    };
+                    // reset scale so next transform is fresh
+                    node.scaleX(1);
+                    node.scaleY(1);
+                    setTexts((all) =>
+                      all.map((tx) => (tx.id === t.id ? updated : tx))
+                    );
+                    socket.emit("drawing", { roomId, text: updated });
+                    setSelectedId(t.id);
                   }}
                 />
               )
             )}
+
             {images.map((img) => (
               <UploadedImage
                 key={img.id}
@@ -818,29 +902,21 @@ export default function Whiteboard() {
                 onSelect={() => setSelectedId(img.id)}
                 onChange={(newAttrs) => {
                   pushToUndo();
-                  setImages((images) =>
-                    images.map((image) =>
-                      image.id === img.id ? { ...image, ...newAttrs } : image
-                    )
+                  setImages((all) =>
+                    all.map((im) => (im.id === img.id ? newAttrs : im))
                   );
+                  socket.emit("drawing", { roomId, image: newAttrs });
                 }}
               />
             ))}
-            {selectedId &&
-              (() => {
-                const selectedNode = stageRef.current.findOne(`#${selectedId}`);
-                if (selectedNode) {
-                  return (
-                    <Transformer
-                      ref={transformerRef}
-                      nodes={[selectedNode]}
-                      flipEnabled={false}
-                    />
-                  );
-                } else {
-                  return null;
-                }
-              })()}
+
+            {selectedId && (
+              <Transformer
+                ref={transformerRef}
+                rotateEnabled={true}
+                keepRatio={true}
+              />
+            )}
           </Layer>
         </Stage>
       </div>

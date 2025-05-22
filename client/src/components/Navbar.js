@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthProvider";
+import { v4 as uuidv4 } from "uuid";
 import "../styles/Navbar.css";
 
 const Navbar = () => {
@@ -14,12 +15,10 @@ const Navbar = () => {
     setIsOpen(false);
   }, [location.pathname]);
 
-  // Close menu on typing outside the navbar
+  // Close menu on any keypress outside navbar
   useEffect(() => {
     if (!isOpen) return;
-
     const handleKeyDown = (e) => {
-      // If focus is inside the navbar, do nothing
       if (
         navbarRef.current &&
         navbarRef.current.contains(document.activeElement)
@@ -28,10 +27,12 @@ const Navbar = () => {
       }
       setIsOpen(false);
     };
-
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
+
+  // generate a fresh room each time
+  const newRoomId = uuidv4();
 
   return (
     <nav className="navbar" ref={navbarRef}>
@@ -44,21 +45,22 @@ const Navbar = () => {
         <li>
           <NavLink
             to="/"
-            className={({ isActive }) => (isActive ? "nav-active" : undefined)}
             onClick={() => setIsOpen(false)}
+            className={({ isActive }) => (isActive ? "nav-active" : undefined)}
           >
             Home
           </NavLink>
         </li>
+
         {user ? (
           <>
             <li>
               <NavLink
                 to="/dashboard"
+                onClick={() => setIsOpen(false)}
                 className={({ isActive }) =>
                   isActive ? "nav-active" : undefined
                 }
-                onClick={() => setIsOpen(false)}
               >
                 Dashboard
               </NavLink>
@@ -80,10 +82,10 @@ const Navbar = () => {
             <li>
               <NavLink
                 to="/login"
+                onClick={() => setIsOpen(false)}
                 className={({ isActive }) =>
                   isActive ? "nav-active" : undefined
                 }
-                onClick={() => setIsOpen(false)}
               >
                 Login
               </NavLink>
@@ -91,21 +93,22 @@ const Navbar = () => {
             <li>
               <NavLink
                 to="/register"
+                onClick={() => setIsOpen(false)}
                 className={({ isActive }) =>
                   isActive ? "nav-active" : undefined
                 }
-                onClick={() => setIsOpen(false)}
               >
                 Register
               </NavLink>
             </li>
             <li>
+              {/* NOTE: we include a fresh UUID each time */}
               <NavLink
-                to="/whiteboard"
+                to={`/whiteboard/${newRoomId}`}
+                onClick={() => setIsOpen(false)}
                 className={({ isActive }) =>
                   isActive ? "nav-active" : undefined
                 }
-                onClick={() => setIsOpen(false)}
               >
                 Whiteboard
               </NavLink>
@@ -122,7 +125,6 @@ const Navbar = () => {
         <span></span>
         <span></span>
       </button>
-      {/* Backdrop for closing menu on outside click */}
       {isOpen && (
         <div className="navbar-backdrop" onClick={() => setIsOpen(false)} />
       )}

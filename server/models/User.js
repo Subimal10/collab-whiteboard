@@ -1,3 +1,4 @@
+// server/models/User.js
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 const validator = require("validator");
@@ -14,7 +15,6 @@ const userSchema = new mongoose.Schema({
       "Username can only contain letters, numbers, and underscores",
     ],
   },
-
   email: {
     type: String,
     required: true,
