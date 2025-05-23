@@ -8,6 +8,11 @@ const WhiteboardSchema = new mongoose.Schema({
     unique: true,
     index: true,
   },
+  owner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
   data: {
     type: mongoose.Schema.Types.Mixed,
     default: {},

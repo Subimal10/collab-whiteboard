@@ -14,6 +14,7 @@ import {
 import useImage from "use-image";
 import { io } from "socket.io-client";
 import { useParams } from "react-router-dom";
+import { useAuth } from "../context/AuthProvider";
 import axios from "axios";
 import "../styles/Whiteboard.css";
 
@@ -65,7 +66,6 @@ const UploadedImage = ({ shapeProps, isSelected, onSelect, onChange }) => {
 };
 
 // keep stage 16:9 between 600×350 and 1200×700
-// in Whiteboard.js, replace getStageSize() with:
 function getStageSize() {
   const maxW = Math.min(window.innerWidth - 40, 1200);
   const minW = 600;
@@ -84,6 +84,7 @@ function getStageSize() {
 }
 
 export default function Whiteboard() {
+  const { token } = useAuth();
   const { roomId } = useParams();
   const stageRef = useRef();
   const transformerRef = useRef();
@@ -188,8 +189,11 @@ export default function Whiteboard() {
   // join room & load saved board
   useEffect(() => {
     socket.emit("join-room", roomId);
+
     axios
-      .get(`/api/whiteboard/${roomId}`)
+      .get(`/api/whiteboard/${roomId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
       .then((res) => {
         if (res.data.data) {
           const { lines, shapes, texts, images } = res.data.data;
@@ -200,7 +204,7 @@ export default function Whiteboard() {
         }
       })
       .catch(console.error);
-  }, [roomId]);
+  }, [roomId, token]);
 
   // undo/redo helpers
   const pushToUndo = useCallback(() => {
@@ -511,13 +515,17 @@ export default function Whiteboard() {
 
   // autosave
   useEffect(() => {
-    const iv = setInterval(() => {
+    const interval = setInterval(() => {
       axios
-        .post(`/api/whiteboard/${roomId}`, { lines, shapes, texts, images })
+        .post(
+          `/api/whiteboard/${roomId}`,
+          { lines, shapes, texts, images },
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
         .catch(console.error);
     }, 5000);
-    return () => clearInterval(iv);
-  }, [roomId, lines, shapes, texts, images]);
+    return () => clearInterval(interval);
+  }, [roomId, lines, shapes, texts, images, token]);
 
   // delete-key
   useEffect(() => {
